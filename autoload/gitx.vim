@@ -1,7 +1,7 @@
 " Autoload gitx functions
 
 let s:shh = ' 2>/dev/null'
-let s:original_statusline = &statusline
+let b:original_statusline = &statusline
 let b:git_statusline = 0
 
 function! Trim(str)
@@ -19,14 +19,20 @@ endfunction
 function! gitx#SetRepo()
     let b:gitdir=TrimSys('cd '.expand('%:h').' && git rev-parse --absolute-git-dir'.s:shh)
     let b:gitrepo = substitute(b:gitdir, '\/\.git', '', '')
-    if (v:shell_error) > 0 | unlet b:gitrepo | return | endif
+    if (v:shell_error) > 0 
+        unlet b:gitrepo 
+        call gitx#UnsetStatus()
+        return
+    endif
+    let b:gitreposhort = substitute(b:gitrepo, '.*\/\([^/]\+\)', '\1', '')
 endfunction
 
 function! gitx#SetRef()
     if !exists("b:gitdir")
         if exists("b:gitref")
             unlet b:gitref
-        endif
+        endif 
+        call gitx#UnsetStatus()
         return
     endif
     let b:gitref=gitx#GitCmd('rev-parse --abbrev-ref HEAD')
@@ -43,21 +49,35 @@ function! gitx#SetRef()
 endfunction
 
 function! gitx#SetStatus()
-    if !exists("b:gitdir") || !exists("b:gitref")
-        if exists("s:original_statusline")
-            let &l:statusline = s:original_statusline
-        else
-            let &l:statusline=""
-        endif
-        let b:git_statusline = 0
+    if !exists("b:gitdir") || !exists("b:gitref")  || !exists("b:gitrepo")
+                \ || !exists("b:gitreposhort")
+                \ || (b:gitdir == "" && b:gitref == "") 
+        call gitx#UnsetStatus()
         return
     endif
-    if !exists("b:git_statusline") && b:git_statusline > 0
-        let s:original_statusline = &statusline
+    if exists("b:git_statusline") && b:git_statusline > 0
+        let b:original_statusline = &statusline
     endif 
     let &l:statusline = '%<'
-    let &l:statusline .= '[%{fnamemodify(b:gitrepo,":.")}:'
+    "let &l:statusline .= '[%{fnamemodify(b:gitrepo,":.")}:'
+    let &l:statusline .= '[%{b:gitreposhort}:'
     let &l:statusline .= '%{b:gitref}]'
     let &l:statusline .= ' %f'
     let b:git_statusline = 1
+endfunction
+
+function! gitx#UnsetStatus()
+    let b:git_statusline = 0
+    if exists("b:original_statusline")
+        let &l:statusline = b:original_statusline
+    else
+        let &l:statusline = ""
+    endif
+endfunction
+
+function! gitx#Diff(...) 
+    let ref = get(a:, 1, "HEAD")
+    let fname2 = get(a:, 2, expand('%'))
+    let fname1 = get(a:, 3, expand('%'))
+    
 endfunction
