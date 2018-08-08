@@ -61,3 +61,44 @@ function! gitx#SetStatus()
     let &l:statusline .= ' %f'
     let b:git_statusline = 1
 endfunction
+
+function! gitx#Diff(...)
+    if !exists("b:gitdir") || !exists("b:gitref")
+        echom "Must be in a git repository to execute git#Diff"
+    endif
+
+    if len(a:000) > 4 | echom "Too many arguments! Ignoring extra args." | endif
+    lf len(a:000) > 3 | let f2 = a:4 | endif
+    if len(a:000) > 2 | let f1 = a:3 | endif
+    if len(a:000) > 1 | let ref2 = a:2 | endif
+    if len(a:000) > 0 | let ref1 = a:1 | endif 
+
+    let fidx = len(a:000) - 1
+    if fidx > 0 | let f2 = a:000[fidx] | let f1dx -= 1 | endif
+    let f1 = a:000[fidx]
+    let fidx -= 1
+    if fidx > 0 let r2 = a:000[fidx] | let fidx -= 1 | endif
+    let f2 = a:000[fidx] 
+    
+    " TODO: Handle cases: 
+    "   ref1 file1 ref2 file2
+    "   ref1 file1 file2
+    "   ref1 ref2 file1
+    "   ref1 ref2
+    "   ref1
+    "   file1
+
+    " Actual execution:
+    diffthis
+    vnew | r !git show :autoload/gitx.vim
+    diffthis
+    set bt=nofile
+    let &l:statusline = '%<'
+    let &l:statusline .= '[%{fnamemodify(b:gitrepo,":.")}:'
+    let &l:statusline .= '%{b:gitref}]'
+    let &l:statusline .= ' %f'
+    let b:git_statusline = 1
+
+    
+    echo "git diff ".ref1." ".ref2." -- ".f1
+endfunction
