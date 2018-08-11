@@ -42,6 +42,10 @@ function! gitx#SetRef()
     endif
 endfunction
 
+function! gitx#GetRefs()
+    return split(gitx#GitCmd('rev-parse --symbolic-full-name --all'))
+endfunction
+
 function! gitx#SetStatus()
     if !exists("b:gitdir") || !exists("b:gitref")
         if exists("s:original_statusline")
@@ -67,9 +71,38 @@ function! gitx#Diff(...)
         echom "Must be in a git repository to execute git#Diff"
     endif
 
+    let refs = gitx#GetRefs()
+
     if len(a:000) > 4 | echom "Too many arguments! Ignoring extra args." | endif
-    lf len(a:000) > 3 | let f2 = a:4 | endif
-    if len(a:000) > 2 | let f1 = a:3 | endif
+    let gitrefs = call gitx#GetRefs()
+    lf len(a:000) == 4 
+        let f2 = a:4 
+        let f1 = a:3
+        let r2 = a:2
+        let r1 = a:0
+    endif
+    if len(a:000) == 3 
+        " either: ref file file || ref ref file
+        let r1 = a:0
+        for ref in gitrefs
+            if a:2 =~ ref."$"
+                let r2 = a:1
+                let f1 = a:2
+                let f2 = f1
+            endif
+        endfor
+        if !exists("r:2")
+            let f1 = a:1
+            let f2 = a:2
+            let r2 = ""
+        endif
+    endif
+    if len(a:000) == 2
+
+
+        
+
+        let f1 = a:3 | endif
     if len(a:000) > 1 | let ref2 = a:2 | endif
     if len(a:000) > 0 | let ref1 = a:1 | endif 
 
@@ -87,6 +120,7 @@ function! gitx#Diff(...)
     "   ref1 ref2
     "   ref1
     "   file1
+    "   [none]
 
     " Actual execution:
     diffthis
