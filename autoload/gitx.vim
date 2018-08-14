@@ -1,7 +1,7 @@
 " Autoload gitx functions
 
 let s:shh = ' 2>/dev/null'
-let s:original_statusline = &statusline
+let b:original_statusline = &statusline
 let b:git_statusline = 0
 
 function! Trim(str)
@@ -19,14 +19,20 @@ endfunction
 function! gitx#SetRepo()
     let b:gitdir=TrimSys('cd '.expand('%:h').' && git rev-parse --absolute-git-dir'.s:shh)
     let b:gitrepo = substitute(b:gitdir, '\/\.git', '', '')
-    if (v:shell_error) > 0 | unlet b:gitrepo | return | endif
+    if (v:shell_error) > 0 
+        unlet b:gitrepo 
+        call gitx#UnsetStatus()
+        return
+    endif
+    let b:gitreposhort = substitute(b:gitrepo, '.*\/\([^/]\+\)', '\1', '')
 endfunction
 
 function! gitx#SetRef()
     if !exists("b:gitdir")
         if exists("b:gitref")
             unlet b:gitref
-        endif
+        endif 
+        call gitx#UnsetStatus()
         return
     endif
     let b:gitref=gitx#GitCmd('rev-parse --abbrev-ref HEAD')
@@ -46,85 +52,76 @@ function! gitx#GetRefs()
     return split(gitx#GitCmd('rev-parse --symbolic-full-name --all'))
 endfunction
 
-function! gitx#SetStatus()
-    if !exists("b:gitdir") || !exists("b:gitref")
-        if exists("s:original_statusline")
-            let &l:statusline = s:original_statusline
-        else
-            let &l:statusline=""
-        endif
-        let b:git_statusline = 0
+function! gitx#GetRelativeFilename(fname)
+    if !exists('b:gitdir')
+        return a:fname
+    endif
+    let l:cwd = getcwd()
+    let l:gitrepo = b:gitrepo
+    if system('uname') =~ "NT"
+        let l:cwd = substitute(l:cwd, "^\\([A-Za-z]*\\):/", "\\L/\\1/", "")
+        let l:gitrepo = substitute(b:gitrepo, "^\\([A-Za-z]*\\):/", "\\L/\\1/", "")
+    endif
+    cd l:gitrepo
+    let l:fname = fnamemodify(a:fname, ':.')
+    cd l:cwd
+    return l:fname
+endfunction
+
+function! gitx#SetStatus(...)
+    if !exists("b:gitdir") || !exists("b:gitrepo")
+                \ || !exists("b:gitreposhort")
+                \ || (b:gitdir == "" && b:gitref == "") 
+        call gitx#UnsetStatus()
         return
     endif
-    if !exists("b:git_statusline") && b:git_statusline > 0
-        let s:original_statusline = &statusline
+    if exists("b:git_statusline") && b:git_statusline > 0
+        let b:original_statusline = &statusline
     endif 
+    let l:ref = get(a:000, 0, b:gitref)
+    let l:fname = get(a:000, 1, expand('%'))
     let &l:statusline = '%<'
-    let &l:statusline .= '[%{fnamemodify(b:gitrepo,":.")}:'
+    "let &l:statusline .= '[%{fnamemodify(b:gitrepo,":.")}:'
+    let &l:statusline .= '[%{b:gitreposhort}:'
     let &l:statusline .= '%{b:gitref}]'
     let &l:statusline .= ' %f'
     let b:git_statusline = 1
 endfunction
 
-function! gitx#Diff(...)
+function! gitx#UnsetStatus()
+    let b:git_statusline = 0
+    if exists("b:original_statusline")
+        let &l:statusline = b:original_statusline
+    else
+        let &l:statusline = ""
+    endif
+endfunction
+
+function! gitx#ShowGitFile(ref, fname)
+    new
+    execute '0:read !git '.b:gitdir.' show '.l:ref.':'.expand('%')
+    normal! J <CR>
+    set bt=nofile
+    let &l:statusline = '%<'
+    let &l:statusline .= '[%{fnamemodify(b:gitrepo,":.")}:'
+    let &l:statusline .= '%{a:ref}]'
+    let &l:statusline .= ' %{fname}]'
+    let &b:git_statusline = 1
+endfunction
+
+function! gitx#DiffThis(...)
     if !exists("b:gitdir") || !exists("b:gitref")
         echom "Must be in a git repository to execute git#Diff"
     endif
 
-    let refs = gitx#GetRefs()
+    let l:ref = get(a:1, 'HEAD')
+    diffthis 
+    vnew 
+    diffthis 
 
-    if len(a:000) > 4 | echom "Too many arguments! Ignoring extra args." | endif
-    let gitrefs = call gitx#GetRefs()
-    lf len(a:000) == 4 
-        let f2 = a:4 
-        let f1 = a:3
-        let r2 = a:2
-        let r1 = a:0
-    endif
-    if len(a:000) == 3 
-        " either: ref file file || ref ref file
-        let r1 = a:0
-        for ref in gitrefs
-            if a:2 =~ ref."$"
-                let r2 = a:1
-                let f1 = a:2
-                let f2 = f1
-            endif
-        endfor
-        if !exists("r:2")
-            let f1 = a:1
-            let f2 = a:2
-            let r2 = ""
-        endif
-    endif
-    if len(a:000) == 2
-
-
-        
-
-        let f1 = a:3 | endif
-    if len(a:000) > 1 | let ref2 = a:2 | endif
-    if len(a:000) > 0 | let ref1 = a:1 | endif 
-
-    let fidx = len(a:000) - 1
-    if fidx > 0 | let f2 = a:000[fidx] | let f1dx -= 1 | endif
-    let f1 = a:000[fidx]
-    let fidx -= 1
-    if fidx > 0 let r2 = a:000[fidx] | let fidx -= 1 | endif
-    let f2 = a:000[fidx] 
-    
-    " TODO: Handle cases: 
-    "   ref1 file1 ref2 file2
-    "   ref1 file1 file2
-    "   ref1 ref2 file1
-    "   ref1 ref2
-    "   ref1
-    "   file1
-    "   [none]
+    call gitx#ShowGitFile(l:ref, expand('%'))
 
     " Actual execution:
-    diffthis
-    vnew | r !git show :autoload/gitx.vim
     diffthis
     set bt=nofile
     let &l:statusline = '%<'
@@ -133,6 +130,4 @@ function! gitx#Diff(...)
     let &l:statusline .= ' %f'
     let b:git_statusline = 1
 
-    
-    echo "git diff ".ref1." ".ref2." -- ".f1
 endfunction
