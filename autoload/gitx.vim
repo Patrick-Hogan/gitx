@@ -28,6 +28,9 @@ function! gitx#SetRepo()
 endfunction
 
 function! gitx#SetRef()
+    if exists("b:git_reffile") && b:git_reffile > 0
+        return
+    endif
     if !exists("b:gitdir")
         if exists("b:gitref")
             unlet b:gitref
@@ -71,24 +74,32 @@ endfunction
 function! gitx#SetStatus(...)
     if !exists("b:gitdir") || !exists("b:gitrepo")
                 \ || !exists("b:gitreposhort")
+                \ || !exists("b:gitref")
                 \ || (b:gitdir == "" && b:gitref == "") 
         call gitx#UnsetStatus()
+        return
+    endif
+    if exists("b:git_reffile") && b:git_reffile > 0
         return
     endif
     if exists("b:git_statusline") && b:git_statusline > 0
         let b:original_statusline = &statusline
     endif 
-    let l:ref = get(a:000, 0, b:gitref)
-    let l:fname = get(a:000, 1, expand('%'))
+    let l:ref = get(a:, 1, b:gitref)
+    let l:fname = get(a:, 2, expand('%'))
     let &l:statusline = '%<'
     "let &l:statusline .= '[%{fnamemodify(b:gitrepo,":.")}:'
     let &l:statusline .= '[%{b:gitreposhort}:'
     let &l:statusline .= '%{b:gitref}]'
     let &l:statusline .= ' %f'
+    let &l:statusline .= '%=%c, %l/%L %P [%y]'
     let b:git_statusline = 1
 endfunction
 
 function! gitx#UnsetStatus()
+    if exists("b:git_reffile") && b:git_reffile > 0
+        return
+    endif
     let b:git_statusline = 0
     if exists("b:original_statusline")
         let &l:statusline = b:original_statusline
@@ -97,16 +108,40 @@ function! gitx#UnsetStatus()
     endif
 endfunction
 
+function! gitx#GetRepoFilename(fname)
+    if !exists("b:gitrepo")
+        return ""
+    endif
+    let l:cwd = getcwd()
+    execute "cd ".fnamemodify(b:gitrepo, ':p')
+    let l:fname = fnamemodify(a:fname, ":.")
+    execute "cd ".l:cwd
+    return l:fname 
+endfunction
+
 function! gitx#ShowGitFile(ref, fname)
-    new
-    execute '0:read !git '.b:gitdir.' show '.l:ref.':'.expand('%')
+    let l:gitdir = b:gitdir
+    let l:gitrepo = b:gitrepo
+    let l:gitreposhort = b:gitreposhort
+    let l:fname = gitx#GetRepoFilename(a:fname)
+    let l:ft = &filetype
+    enew
+    let msg = "DNE" | if exists("b:fname") | let msg = b:fname | endif
+    let b:gitdir = l:gitdir
+    let b:gitrepo = l:gitrepo
+    let b:gitreposhort = l:gitreposhort
+    let b:fname = l:fname
+    let &ft = l:ft
+    execute '0:read !git --git-dir='.b:gitdir.' show '.a:ref.':'.b:fname
     normal! J <CR>
     set bt=nofile
-    let &l:statusline = '%<'
-    let &l:statusline .= '[%{fnamemodify(b:gitrepo,":.")}:'
-    let &l:statusline .= '%{a:ref}]'
-    let &l:statusline .= ' %{fname}]'
-    let &b:git_statusline = 1
+    let b:gitref = a:ref
+    let &l:statusline = '%<[git]'
+    let &l:statusline .= '[%{b:gitreposhort}:%{b:gitref}]'
+    let &l:statusline .= ' %{b:fname}'
+    let &l:statusline .= '%=%c, %l/%L %P [%y]'
+    let b:git_statusline = 1
+    let b:git_reffile = 1
 endfunction
 
 function! gitx#DiffThis(...)
@@ -114,20 +149,9 @@ function! gitx#DiffThis(...)
         echom "Must be in a git repository to execute git#Diff"
     endif
 
-    let l:ref = get(a:1, 'HEAD')
+    let l:ref = get(a:, 1, 'HEAD')
     diffthis 
-    vnew 
-    diffthis 
-
+    vsplit
     call gitx#ShowGitFile(l:ref, expand('%'))
-
-    " Actual execution:
-    diffthis
-    set bt=nofile
-    let &l:statusline = '%<'
-    let &l:statusline .= '[%{fnamemodify(b:gitrepo,":.")}:'
-    let &l:statusline .= '%{b:gitref}]'
-    let &l:statusline .= ' %f'
-    let b:git_statusline = 1
-
+    diffthis 
 endfunction
