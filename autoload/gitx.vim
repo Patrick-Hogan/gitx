@@ -12,10 +12,13 @@ function! TrimSys(cmd)
     return Trim(system(a:cmd.s:shh))
 endfunction
 
+" Simple wrapper for executing git comands and returning the results:
 function! gitx#GitCmd(cmd)
    return Trim(system('git --git-dir='.b:gitdir.' '.a:cmd.s:shh))
 endfunction
 
+" Utility function to set the buffer variable for repo name and update status
+" bar:
 function! gitx#SetRepo()
     let b:gitdir=TrimSys('cd '.expand('%:h').' && git rev-parse --absolute-git-dir'.s:shh)
     let b:gitrepo = substitute(b:gitdir, '\/\.git', '', '')
@@ -27,6 +30,7 @@ function! gitx#SetRepo()
     let b:gitreposhort = substitute(b:gitrepo, '.*\/\([^/]\+\)', '\1', '')
 endfunction
 
+" Set b:gitref to a human-readable reference to the current git ref:
 function! gitx#SetRef()
     if exists("b:git_reffile") && b:git_reffile > 0
         return
@@ -40,6 +44,7 @@ function! gitx#SetRef()
     endif
     let b:gitref=gitx#GitCmd('rev-parse --abbrev-ref HEAD')
     if v:shell_error > 0 | unlet b:gitref | return | endif
+    " Try to expand 'HEAD' to something useful:
     if b:gitref == "HEAD"
         let b:gitref = gitx#GitCmd('describe --all --always --long')
         if v:shell_error > 0 | let b:gitref = "HEAD" |  return | endif 
@@ -51,10 +56,12 @@ function! gitx#SetRef()
     endif
 endfunction
 
+" Get the full listing of git references
 function! gitx#GetRefs()
     return split(gitx#GitCmd('rev-parse --symbolic-full-name --all'))
 endfunction
 
+" Get the path name for a file relative to the repo root:
 function! gitx#GetRelativeFilename(fname)
     if !exists('b:gitdir')
         return a:fname
@@ -71,6 +78,7 @@ function! gitx#GetRelativeFilename(fname)
     return l:fname
 endfunction
 
+" Update the status bar with: [repo-name:ref] relative/filename
 function! gitx#SetStatus(...)
     if !exists("b:gitdir") || !exists("b:gitrepo")
                 \ || !exists("b:gitreposhort")
@@ -96,6 +104,7 @@ function! gitx#SetStatus(...)
     let b:git_statusline = 1
 endfunction
 
+" Revert the statusline to whatever it was before we messed with it:
 function! gitx#UnsetStatus()
     if exists("b:git_reffile") && b:git_reffile > 0
         return
@@ -108,6 +117,7 @@ function! gitx#UnsetStatus()
     endif
 endfunction
 
+" Get the path to a file from repo root:
 function! gitx#GetRepoFilename(fname)
     if !exists("b:gitrepo")
         return ""
@@ -119,6 +129,7 @@ function! gitx#GetRepoFilename(fname)
     return l:fname 
 endfunction
 
+" Show a git file from any ref:
 function! gitx#ShowGitFile(ref, fname)
     let l:gitdir = b:gitdir
     let l:gitrepo = b:gitrepo
@@ -144,6 +155,7 @@ function! gitx#ShowGitFile(ref, fname)
     let b:git_reffile = 1
 endfunction
 
+" Open a diff of the current buffer and the same file on any git ref in vsplit:
 function! gitx#DiffThis(...)
     if !exists("b:gitdir") || !exists("b:gitref")
         echom "Must be in a git repository to execute git#Diff"
