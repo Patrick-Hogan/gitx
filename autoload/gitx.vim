@@ -22,8 +22,8 @@ endfunction
 function! gitx#SetRepo()
     let b:gitdir=TrimSys('cd '.expand('%:h').' && git rev-parse --absolute-git-dir'.s:shh)
     let b:gitrepo = substitute(b:gitdir, '\/\.git', '', '')
-    if (v:shell_error) > 0 
-        unlet b:gitrepo 
+    if (v:shell_error) != 0
+        unlet b:gitrepo
         call gitx#UnsetStatus()
         return
     endif
@@ -38,7 +38,7 @@ function! gitx#SetRef()
     if !exists("b:gitdir")
         if exists("b:gitref")
             unlet b:gitref
-        endif 
+        endif
         call gitx#UnsetStatus()
         return
     endif
@@ -47,7 +47,7 @@ function! gitx#SetRef()
     " Try to expand 'HEAD' to something useful:
     if b:gitref == "HEAD"
         let b:gitref = gitx#GitCmd('describe --all --always --long')
-        if v:shell_error > 0 | let b:gitref = "HEAD" |  return | endif 
+        if v:shell_error > 0 | let b:gitref = "HEAD" |  return | endif
         " with --all, ref will start with tags/, heads/ or remotes/, and, with
         " --long, will end with '-gSHA1SUM'
         let b:gitref = substitute(b:gitref, '^\([rht]\)\(emotes\|eads\|ags\)/', '\1:', '')
@@ -83,7 +83,7 @@ function! gitx#SetStatus(...)
     if !exists("b:gitdir") || !exists("b:gitrepo")
                 \ || !exists("b:gitreposhort")
                 \ || !exists("b:gitref")
-                \ || (b:gitdir == "" && b:gitref == "") 
+                \ || (b:gitdir == "" && b:gitref == "")
         call gitx#UnsetStatus()
         return
     endif
@@ -92,7 +92,7 @@ function! gitx#SetStatus(...)
     endif
     if exists("b:git_statusline") && b:git_statusline > 0
         let b:original_statusline = &statusline
-    endif 
+    endif
     let l:ref = get(a:, 1, b:gitref)
     let l:fname = get(a:, 2, expand('%'))
     let &l:statusline = '%<'
@@ -126,28 +126,46 @@ function! gitx#GetRepoFilename(fname)
     execute "cd ".fnamemodify(b:gitrepo, ':p')
     let l:fname = fnamemodify(a:fname, ":.")
     execute "cd ".l:cwd
-    return l:fname 
+    return l:fname
 endfunction
 
 " Show a git file from any ref:
 function! gitx#ShowGitFile(ref, fname)
+    if !exists("b:gitrepo")
+        echom "Not in a git repository"
+        return 1
+    endif
+    " Copy settings from the current buffer:
     let l:gitdir = b:gitdir
     let l:gitrepo = b:gitrepo
     let l:gitreposhort = b:gitreposhort
     let l:fname = gitx#GetRepoFilename(a:fname)
     let l:ft = &filetype
+
+    " Try to read the file from the repo. If it fails, don't create the new
+    " buffer:
+    let l:contents = gitx#GitCmd("show ".a:ref.":".l:fname)
+    if (v:shell_error) != 0
+        echom "Unable to show file: Cannot resolve ".a:ref.":".l:fname." to a git reference!"
+        return 1
+    endif
     enew
-    let msg = "DNE" | if exists("b:fname") | let msg = b:fname | endif
+    execute '0put =l:contents'
+    normal! J <CR>
+    normal! gg
+
+    " Copy the local settings from the previous buffer to the new buffer:
     let b:gitdir = l:gitdir
     let b:gitrepo = l:gitrepo
     let b:gitreposhort = l:gitreposhort
     let b:fname = l:fname
     let &ft = l:ft
-    execute '0:read !git --git-dir='.b:gitdir.' show '.a:ref.':'.b:fname
-    normal! J <CR>
+
     set bt=nofile
+    set readonly
+    execute 'file '.a:ref.':'.b:fname
     let b:gitref = a:ref
-    let &l:statusline = '%<[git]'
+    let &l:statusline = '%<[git][RO]'
     let &l:statusline .= '[%{b:gitreposhort}:%{b:gitref}]'
     let &l:statusline .= ' %{b:fname}'
     let &l:statusline .= '%=%c, %l/%L %P [%y]'
@@ -155,15 +173,75 @@ function! gitx#ShowGitFile(ref, fname)
     let b:git_reffile = 1
 endfunction
 
-" Open a diff of the current buffer and the same file on any git ref in vsplit:
+" Open a diff of the current buffer and the same file from any git ref in vsplit:
 function! gitx#DiffThis(...)
     if !exists("b:gitdir") || !exists("b:gitref")
         echom "Must be in a git repository to execute git#Diff"
+        return 1
     endif
 
     let l:ref = get(a:, 1, 'HEAD')
-    diffthis 
+    diffthis
     vsplit
     call gitx#ShowGitFile(l:ref, expand('%'))
-    diffthis 
+    diffthis
+endfunction
+
+" Stage the current file:
+function! gitx#AddThis()
+    if !exists("b:gitdir") || !exists("b:gitref")
+        echom "Must be in a git repository to execute git#Add"
+        return 1
+    endif
+    if exists("b:git_reffile" && b:git_reffile == 1)
+        echom "Unable to stage file until it is saved to the work tree!"
+        return 1
+    endif
+    let l:fname = gitx#GetRepoFilename(expand('%'))
+    call gitx#GitCmd("add ".l:fname)
+    if (v:shell_error) != 0
+        echom "Unable to add file ".l:fname
+        return 1
+    endif
+endfunction
+
+" Interactively stage the current file:
+function! gitx#AddI(...)
+    if !exists("b:gitdir") || !exists("b:gitref")
+        echom "Must be in a git repository to execute git#Add"
+        return 1
+    endif
+    if exists("b:git_reffile" && b:git_reffile == 1)
+        echom "Unable to stage file until it is saved to the work tree!"
+        return 1
+    endif
+    let l:contents = gitx#GitCmd("diff ".join(a:000, " "))
+    if (v:shell_error) != 0
+        echom "Unable to add changes"
+        return 1
+    endif
+
+    vsplit
+    call system('rm .git/ADD_EDIT.patch '.s:shh)
+    edit .git/ADD_EDIT.patch
+    execute '0put =l:contents'
+    normal! J <CR>
+    normal! gg
+    execute 'silent w'
+endfunction
+
+function! gitx#ApplyPatch(...)
+    if !exists("b:gitdir") || !exists("b:gitref")
+        echom "Must be in a git repository to execute git#Add"
+        return 1
+    endif
+    let l:patch_file = get(a:, 1, '.git/ADD_EDIT.patch')
+    "call system('git --git-dir='.b:gitdir.' '."apply --cached ".l:patch_file)
+    call gitx#GitCmd("apply --cached ".l:patch_file)
+    if (v:shell_error) != 0
+        echom "Unable to apply patch"
+        return 1
+    endif
+    call system('rm '.l:patch_file.s:shh)
+    echom "Patch Applied"
 endfunction
